@@ -4,9 +4,9 @@ HW &amp; SW Project for feasibility assessment of accoustic localisation on boar
 ## HW Notes
 * Project for Altium Designer 24.1.2
 * Board power: +5V, fed to regulator AMS1117-3.3 with 3.3V output
-* Main MCU: STM32G030F6P6 (or G031) running at 64MHz (PLL from HSI)
-* MEMS microphone: ST IMP23ABSU with 80kHz bandwidth
-* Analog circuitry: PGA MAX9939AUB+, gain values 0.25 to 157, optional multi-feedback filter (LP/HP/BP)
+* Main MCU: [STM32G030F6P6](https://www.st.com/en/microcontrollers-microprocessors/stm32g030f6.html) (or G031) running at 64MHz (PLL from HSI)
+* MEMS microphone: ST [IMP23ABSU](https://www.st.com/en/mems-and-sensors/imp23absu.html) with 80kHz bandwidth ([STEVAL-MIC007V1](https://www.st.com/en/evaluation-tools/steval-mic007v1.html))
+* Analog circuitry: PGA [MAX9939AUB+](https://www.analog.com/en/products/max9939.html), gain values 0.25 to 157, optional multi-feedback filter (LP/HP/BP)
 * Selectable order of PGA and MFB filter (solder bridges SB2, SB4 closed for PGA -> MFB / SB1, SB3 for MFB -> PGA)
 * Data output: USART1 (optionally with CTS flow control pin)
 * Programming SWD pins (standard Nucleo pin order)
@@ -28,4 +28,4 @@ Top view | Bottom view
 * Can be compiled with macro `USART_ASCII_MODE` set to `true` - then USART1 transmits single ADC sample every 500ms together with string containing PGA settings
 
 ## SW Notes
-* A Python3 script which uses Tkinter + matplotlib for real-time visualisation of the ADC samples: shows signal + FFT amplitude spectrum
+* A Python3 script which uses Tkinter + matplotlib for real-time visualisation of the ADC measurement: shows signal + FFT amplitude spectrum
