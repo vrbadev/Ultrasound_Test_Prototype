@@ -22,8 +22,8 @@ Top view | Bottom view
 * SPI1 for PGA control (transmit only) running at 1MHz
 * ADC channels IN0 to IN2: IN0 = direct microphone output, IN1 = PGA output, IN2 = MFB op-amp output
 * ADC triggered by TIM3 for sampling frequency equal to 160kHz, oversampling x8 for noise reduction
-* ADC data is transmitted by DMA to RAM buffer, first and second half of the buffer are processed separately in the main program loop: the ADC data is 12-bit unsigned (0-4095) stored by default in 16-bit unsigned, the main loop "compresses" every two 12-bit consequtive samples into three bytes (saves 25% of the required throughput); sampling rate 160kHz thus requires only 240kBps throughput
-* The compressed samples (the TX buffer with size 750B) are transferred via USART1 using another DMA channel, always preceded by delimeter sequence (three zero bytes) for correct receiver parsing (= 753B total per transmitted packet)
+* ADC data is transferred by DMA to RAM buffer (with size 2kB), first and second half of the buffer are processed separately in the main program loop: the ADC data is 12-bit unsigned (0-4095) stored by default in 16-bit unsigned, the main loop "compresses" every two 12-bit consequtive samples into three bytes (saves 25% of the required throughput); sampling rate 160kHz thus requires only 240kBps throughput
+* The compressed samples (i.e., a TX buffer with size 750B) are transmitted via USART1 using another DMA channel, always preceded by delimeter sequence (three zero bytes) for correct receiver parsing (= 753B total per transmitted packet)
 * Accepts USART commands for PGA control: `S0`/`S1` for shutdown, `M0`/`M1` for self-measurement, `G0`-`G9` for gain selection (corresponding to 1, 10, 20, 30, 40, 60, 80, 120, 157, 0.25 gains) and `O+0`/`O-0` to `O+15`/`O-15` for internal offset correction (+/- signed, corresponding to 0.0, 1.3, 2.5, 3.8, 4.9, 6.1, 7.3, 8.4, 10.6, 11.7, 12.7, 13.7, 14.7, 15.7, 16.7, 17.6 mV)
 * Can be compiled with macro `USART_ASCII_MODE` set to `true` - then USART1 transmits single ADC sample every 500ms together with string containing PGA settings (useful for manual PGA offset calibration)
 
