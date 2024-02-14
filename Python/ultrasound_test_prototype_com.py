@@ -113,9 +113,6 @@ class Visualizer(multiprocessing.Process):
         
         root.quit()
     
-        
-    tk.Misc.tksleep = tksleep
-    
     def close(self):
         self.term_evt.set()
         
