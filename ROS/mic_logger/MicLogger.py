@@ -65,9 +65,15 @@ class MicLogger():
         rospy.loginfo("[MicLogger] COM port opened.")
 
         cmd_gain, cmd_offset = self.pga_settings()
-        com.write(cmd_gain)
-        com.write(cmd_offset)
         rospy.loginfo("[MicLogger] PGA settings: gain=%.2f, offset=%.1f" % (self.pga_gain, self.pga_offset))
+        com.write(cmd_gain)
+        com.flush()
+        rospy.loginfo("[MicLogger] Sent CMD to set gain: " + str(cmd_gain))
+        rate.sleep()
+        com.write(cmd_offset)
+        com.flush()
+        rospy.loginfo("[MicLogger] Sent CMD to set offset: " + str(cmd_offset))
+        rate.sleep()
 
         while not rospy.is_shutdown():
             data = np.frombuffer(com.read(self.total_packet_bytes), dtype=np.uint8)
@@ -75,21 +81,23 @@ class MicLogger():
                 seq_pos = search_sequence(data, self.adc_delim_seq)
                 if len(seq_pos) == len(self.adc_delim_seq) and seq_pos[0] > 0:
                     rospy.loginfo("[MicLogger] Lost %d bytes, aligning to delimeter sequence at pos %d" % (self.total_packet_bytes - seq_pos[0], seq_pos[0]))
-                    com.read(int(seq_pos[0])) # dummy read
+                    data = np.frombuffer(com.read(int(seq_pos[0])), dtype=np.uint8)
                 else:
                     data = data[len(self.adc_delim_seq):]
                     
-                    new_adc_data = np.zeros(self.adc_samples_per_packet, dtype=np.uint16)
-                    j = 0
-                    for i in range(0, len(data), 3):
+                new_adc_data = np.zeros(self.adc_samples_per_packet, dtype=np.uint16)
+                j = 0
+                for i in range(0, len(data), 3):
+                    if i+1 < len(data):
                         new_adc_data[j] = data[i] | ((data[i+1] & 0x0F) << 8)
+                    if i+2 < len(data):
                         new_adc_data[j+1] = ((data[i+1] & 0xF0) << 4) | data[i+2]
-                        j += 2
-                    
-                    msg = UInt16ArrayStamped()
-                    msg.header.stamp = rospy.Time.now()
-                    msg.data = new_adc_data
-                    self.pub.publish(msg)
+                    j += 2
+                
+                msg = UInt16ArrayStamped()
+                msg.header.stamp = rospy.Time.now()
+                msg.data = new_adc_data[:j]
+                self.pub.publish(msg)
         
         com.close()
         rospy.loginfo("[MicLogger] COM port closed.")

@@ -6,7 +6,7 @@
     <param name="com_cts" type="bool" value="true" /> 
 
     <param name="pga_gain" type="double" value="157" /> 
-    <param name="pga_offset" type="double" value="10.6" /> 
+    <param name="pga_offset" type="double" value="12.7" /> 
 
     <param name="adc_freq" type="int" value="160000" /> 
     <param name="adc_samples_per_packet" type="int" value="500" /> 
