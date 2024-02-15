@@ -53,10 +53,11 @@ class MicLogger():
     def run(self):
         rospy.loginfo("[MicLogger] Opening COM: port=%s, baud=%d" % (self.com_port, self.com_baud))
 
+        open_com = lambda: serial.Serial(self.com_port, baudrate=self.com_baud, timeout=1, dsrdtr=self.com_cts)
         rate = rospy.Rate(1)
         while not rospy.is_shutdown():
             try:
-                com = serial.Serial(self.com_port, baudrate=self.com_baud, timeout=1, dsrdtr=self.com_cts)
+                com = open_com()
                 break
             except Exception as e:
                 rospy.logwarn("[MicLogger] Failed to open COM port: " + str(e))
@@ -99,6 +100,11 @@ class MicLogger():
                 msg.header.stamp = rospy.Time.now()
                 msg.data = new_adc_data[:j]
                 self.pub.publish(msg)
+            else:
+                rospy.logwarn("[MicLogger] No data received, reopening COM port...")
+                com.close()
+                rate.sleep()
+                com = open_com()
         
         com.close()
         rospy.loginfo("[MicLogger] COM port closed.")
