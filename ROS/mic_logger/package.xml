@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>mic_logger</name>
+  <version>0.0.0</version>
+  <description>The mic_logger package</description>
+
+  <maintainer email="vrbavoj3@fel.cvut.cz">Vojtech Vrba</maintainer>
+  <license>BSD</license>
+  <url type="website">https://github.com/vrbadev/Ultrasound_Test_Prototype</url>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <build_depend>rospy</build_depend>
+  <build_depend>std_msgs</build_depend>
+
+  <build_export_depend>rospy</build_export_depend>
+  <build_export_depend>std_msgs</build_export_depend>
+
+  <exec_depend>rospy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+
+  <export>
+
+  </export>
+</package>
