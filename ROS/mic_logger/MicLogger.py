@@ -24,24 +24,28 @@ def search_sequence(arr, seq):
 
 class MicLogger():
     def __init__(self):
-        self.com_port = rospy.get_param("com_port", "/dev/ttyACM0")
-        self.com_baud = int(rospy.get_param("com_baud", 4000000))
-        self.com_cts = rospy.get_param("com_cts", True)
-        self.pga_gain = rospy.get_param("pga_gain", 157)
-        self.pga_offset = rospy.get_param("pga_offset", 10.6)
-        self.adc_freq = rospy.get_param("adc_freq", 160000)
-        self.adc_samples_per_packet = rospy.get_param("adc_samples_per_packet", 500)
-        self.adc_delim_seq = rospy.get_param("adc_delim_seq", [0, 0, 0])
+        self.node = rospy.init_node("mic_logger")
+
+        self.com_port = rospy.get_param("~com_port")
+        self.com_baud = int(rospy.get_param("~com_baud"))
+        self.com_cts = rospy.get_param("~com_cts")
+        self.pga_gain = rospy.get_param("~pga_gain")
+        self.pga_offset = rospy.get_param("~pga_offset")
+        self.adc_freq = rospy.get_param("~adc_freq")
+        self.adc_samples_per_packet = rospy.get_param("~adc_samples_per_packet")
+        self.adc_delim_seq = rospy.get_param("~adc_delim_seq")
 
         self.total_packet_bytes = int((2 * 3 * self.adc_samples_per_packet) // 4) + len(self.adc_delim_seq)
 
         self.pub = rospy.Publisher("/mic_logger_data", UInt16ArrayStamped, queue_size=1)
-        self.node = rospy.init_node("mic_logger")
     
     def pga_settings(self):
         g_index = np.argmin(np.abs(PGA_GAINS - self.pga_gain))
-        o_index = np.argmin(np.abs(PGA_GAINS - abs(self.pga_offset)))
+        o_index = np.argmin(np.abs(PGA_OFFSETS - abs(self.pga_offset)))
         
+        self.pga_gain = PGA_GAINS[g_index]
+        self.pga_offset = (1 if self.pga_offset >= 0 else -1) * PGA_OFFSETS[o_index]
+
         g = "G%d\n" % g_index
         o = "O" + ("+" if self.pga_offset >= 0 else "-") + "%d\n" % o_index
         return g.encode("ascii"), o.encode("ascii")
