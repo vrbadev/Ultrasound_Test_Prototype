@@ -90,9 +90,10 @@ class MicLogger():
                 for i in range(0, len(data), 3):
                     if i+1 < len(data):
                         new_adc_data[j] = data[i] | ((data[i+1] & 0x0F) << 8)
+                        j += 1
                     if i+2 < len(data):
-                        new_adc_data[j+1] = ((data[i+1] & 0xF0) << 4) | data[i+2]
-                    j += 2
+                        new_adc_data[j] = ((data[i+1] & 0xF0) << 4) | data[i+2]
+                        j += 1
                 
                 msg = UInt16ArrayStamped()
                 msg.header.stamp = rospy.Time.now()
