@@ -33,8 +33,6 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define USART_ASCII_MODE false
-
 #ifdef __GNUC__
 #define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
 #else
@@ -102,7 +100,15 @@ uint32_t delay_end = 0;
 uint8_t usart_rx_buffer[USART_RX_BUFFER_LEN];
 uint32_t usart_rx_len = 0;
 
-uint8_t usart_tx_buffer[(3 * ADC_BUFFER_LEN) / 4];
+struct {
+	uint8_t delimeter[5];
+	uint8_t pga_gain : 8;
+	int8_t pga_offset : 8;
+	uint8_t adc_channel : 8;
+	uint32_t id : 32;
+	uint8_t adc_buffer[(3 * ADC_BUFFER_LEN) / 4];
+	uint8_t dummy[2];
+} usart_tx_packet;
 
 uint32_t adc_num_conversions = 0;
 uint16_t adc_buffer[ADC_BUFFER_LEN];
@@ -112,8 +118,8 @@ bool adc_dma_complete = false;
 struct {
 	uint8_t shdn;
 	uint8_t meas;
-	uint8_t gain;
-	uint8_t offset;
+	int gain;
+	int offset;
 } max9939_settings;
 
 struct {
@@ -123,8 +129,6 @@ struct {
 	char offset_sign;
 	char* offset_str;
 } max9939_info;
-
-uint32_t com_ascii_print_period_ms = 500;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -151,18 +155,33 @@ void delay(uint32_t ms) {
 	while (millis < delay_end);
 }
 
+void adc_set_channel(uint32_t ch)
+{
+	HAL_ADC_Stop_DMA(&hadc1);
+	ADC_ChannelConfTypeDef sConfig = {0};
+	sConfig.Channel = ch;
+	sConfig.Rank = ADC_REGULAR_RANK_1;
+	sConfig.SamplingTime = ADC_SAMPLINGTIME_COMMON_1;
+	if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+	{
+	Error_Handler();
+	}
+	HAL_ADC_Start_DMA(&hadc1, (uint32_t*) adc_buffer, ADC_BUFFER_LEN);
+}
+
 void compress_12bit_data(bool first_half)
 {
 	uint16_t* start = first_half ? (uint16_t*) adc_buffer : (uint16_t*) &(adc_buffer[ADC_BUFFER_LEN/2]);
 	uint32_t o = 0;
 	for (uint32_t i = 0; i < ADC_BUFFER_LEN / 2; i+=2) {
-		usart_tx_buffer[o] = (uint8_t) (start[i] & 0x00FF);
+		usart_tx_packet.adc_buffer[o] = (uint8_t) (start[i] & 0x00FF);
 		o++;
-		usart_tx_buffer[o] = (uint8_t) ((start[i] & 0x0F00) >> 8) | ((start[i+1] & 0x0F00) >> 4);
+		usart_tx_packet.adc_buffer[o] = (uint8_t) ((start[i] & 0x0F00) >> 8) | ((start[i+1] & 0x0F00) >> 4);
 		o++;
-		usart_tx_buffer[o] = (uint8_t) (start[i+1] & 0x00FF);
+		usart_tx_packet.adc_buffer[o] = (uint8_t) (start[i+1] & 0x00FF);
 		o++;
 	}
+	usart_tx_packet.id++;
 }
 
 void max9939_write(uint8_t reg)
@@ -175,102 +194,21 @@ void max9939_write(uint8_t reg)
 	delay(1);
 }
 
-void max9939_set_info()
-{
-	max9939_info.shdn_ch = max9939_settings.shdn ? '1' : '0';
-	max9939_info.meas_ch = max9939_settings.meas ? '1' : '0';
-	max9939_info.offset_sign = (max9939_settings.offset & MAX9939_VOS_NEG) ? '-' : '+';
-	switch (max9939_settings.gain) {
-	case MAX9939_GAIN_0_25X:
-		max9939_info.gain_str = "0.25";
-		break;
-	case MAX9939_GAIN_1X:
-		max9939_info.gain_str = "1";
-		break;
-	case MAX9939_GAIN_10X:
-		max9939_info.gain_str = "10";
-		break;
-	case MAX9939_GAIN_20X:
-		max9939_info.gain_str = "20";
-		break;
-	case MAX9939_GAIN_30X:
-		max9939_info.gain_str = "30";
-		break;
-	case MAX9939_GAIN_40X:
-		max9939_info.gain_str = "40";
-		break;
-	case MAX9939_GAIN_60X:
-		max9939_info.gain_str = "60";
-		break;
-	case MAX9939_GAIN_80X:
-		max9939_info.gain_str = "80";
-		break;
-	case MAX9939_GAIN_120X:
-		max9939_info.gain_str = "120";
-		break;
-	case MAX9939_GAIN_157X:
-		max9939_info.gain_str = "157";
-		break;
-	}
-	switch (max9939_settings.offset & ~MAX9939_VOS_NEG) {
-	case MAX9939_VOS_0_0MV:
-		max9939_info.offset_str = "0.0";
-		break;
-	case MAX9939_VOS_1_3MV:
-		max9939_info.offset_str = "1.3";
-		break;
-	case MAX9939_VOS_2_5MV:
-		max9939_info.offset_str = "2.5";
-		break;
-	case MAX9939_VOS_3_8MV:
-		max9939_info.offset_str = "3.8";
-		break;
-	case MAX9939_VOS_4_9MV:
-		max9939_info.offset_str = "4.9";
-		break;
-	case MAX9939_VOS_6_1MV:
-		max9939_info.offset_str = "6.1";
-		break;
-	case MAX9939_VOS_7_3MV:
-		max9939_info.offset_str = "7.3";
-		break;
-	case MAX9939_VOS_8_4MV:
-		max9939_info.offset_str = "8.4";
-		break;
-	case MAX9939_VOS_10_6MV:
-		max9939_info.offset_str = "10.6";
-		break;
-	case MAX9939_VOS_11_7MV:
-		max9939_info.offset_str = "11.7";
-		break;
-	case MAX9939_VOS_12_7MV:
-		max9939_info.offset_str = "12.7";
-		break;
-	case MAX9939_VOS_13_7MV:
-		max9939_info.offset_str = "13.7";
-		break;
-	case MAX9939_VOS_14_7MV:
-		max9939_info.offset_str = "14.7";
-		break;
-	case MAX9939_VOS_15_7MV:
-		max9939_info.offset_str = "15.7";
-		break;
-	case MAX9939_VOS_16_7MV:
-		max9939_info.offset_str = "16.7";
-		break;
-	case MAX9939_VOS_17_6MV:
-		max9939_info.offset_str = "17.6";
-		break;
-	}
-}
-
 void max9939_apply_settings()
 {
-	max9939_write(max9939_settings.gain);
-	max9939_write(max9939_settings.shdn | max9939_settings.meas | max9939_settings.offset);
-#if USART_ASCII_MODE
-	max9939_set_info();
-#endif
+	max9939_write((((uint8_t) max9939_settings.gain) << 1) | 0x01);
+
+	int tmp = max9939_settings.offset;
+	if (tmp < 0) {
+		tmp = -tmp;
+		if (tmp >= 0 && tmp <= 15) {
+			max9939_write(max9939_settings.shdn | max9939_settings.meas | ((((uint8_t) tmp) << 1) | MAX9939_VOS_NEG));
+		}
+	} else {
+		if (tmp >= 0 && tmp <= 15) {
+			max9939_write(max9939_settings.shdn | max9939_settings.meas | (((uint8_t) tmp) << 1));
+		}
+	}
 }
 
 /* USER CODE END 0 */
@@ -316,9 +254,15 @@ int main(void)
 
   max9939_settings.shdn = 0x00;
   max9939_settings.meas = 0x00;
-  max9939_settings.gain = MAX9939_GAIN_157X;
-  max9939_settings.offset = MAX9939_VOS_12_7MV;
+  max9939_settings.gain = 8;
+  max9939_settings.offset = 10;
   max9939_apply_settings();
+
+  for(int i = 0; i < sizeof(usart_tx_packet.delimeter); i++) { usart_tx_packet.delimeter[i] = 0xFF; }
+  usart_tx_packet.id = 0;
+  usart_tx_packet.adc_channel = 2;
+  usart_tx_packet.pga_gain = (uint8_t) max9939_settings.gain;
+  usart_tx_packet.pga_offset = (int8_t) max9939_settings.offset;
 
   HAL_ADC_Start_DMA(&hadc1, (uint32_t*) adc_buffer, ADC_BUFFER_LEN);
 
@@ -327,9 +271,7 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  const uint8_t delim[3] = {0x00, 0x00, 0x00};
   int tmp;
-  uint32_t com_ascii_last_print = millis;
 
   while (1)
   {
@@ -352,24 +294,36 @@ int main(void)
 			usart_rx_buffer[usart_rx_len] = 0;
 			tmp = atoi((char*) &(usart_rx_buffer[1]));
 			if (tmp >= 0 && tmp <= 9) {
-				max9939_settings.gain = (((uint8_t) tmp) << 1) | 0x01;
+				max9939_settings.gain = tmp;
+				usart_tx_packet.pga_gain = (uint8_t) max9939_settings.gain;
 				max9939_apply_settings();
 			}
 			break;
 		case 'O':
 			usart_rx_buffer[usart_rx_len] = 0;
 			tmp = atoi((char*) &(usart_rx_buffer[1]));
-			if (tmp < 0) {
-				tmp = -tmp;
-				if (tmp >= 0 && tmp <= 15) {
-					max9939_settings.offset = (((uint8_t) tmp) << 1) | MAX9939_VOS_NEG;
-					max9939_apply_settings();
-				}
-			} else {
-				if (tmp >= 0 && tmp <= 15) {
-					max9939_settings.offset = ((uint8_t) tmp) << 1;
-					max9939_apply_settings();
-				}
+			if (tmp >= -15 && tmp <= 15) {
+				max9939_settings.offset = tmp;
+				usart_tx_packet.pga_offset = (int8_t) max9939_settings.offset;
+				max9939_apply_settings();
+			}
+			break;
+		case 'C':
+			usart_rx_buffer[usart_rx_len] = 0;
+			tmp = atoi((char*) &(usart_rx_buffer[1]));
+			switch (tmp) {
+			case 0:
+				usart_tx_packet.adc_channel = 0;
+				adc_set_channel(ADC_CHANNEL_0);
+				break;
+			case 1:
+				usart_tx_packet.adc_channel = 1;
+				adc_set_channel(ADC_CHANNEL_1);
+				break;
+			case 2:
+				usart_tx_packet.adc_channel = 2;
+				adc_set_channel(ADC_CHANNEL_2);
+				break;
 			}
 			break;
 		}
@@ -377,35 +331,21 @@ int main(void)
 	}
 
 	if (adc_dma_half_complete) {
-		if (!USART_ASCII_MODE) {
 			compress_12bit_data(true);
-			HAL_UART_Transmit(&huart1, delim, sizeof(delim), HAL_MAX_DELAY);
-			HAL_UART_Transmit_DMA(&huart1, usart_tx_buffer, sizeof(usart_tx_buffer));
+			HAL_UART_Transmit_DMA(&huart1, (uint8_t*) &usart_tx_packet, sizeof(usart_tx_packet));
 			//HAL_UART_Transmit_DMA(&huart1, (uint8_t*) adc_buffer, ADC_BUFFER_LEN);
-		}
 
 		adc_dma_half_complete = false;
 	}
 
 	if (adc_dma_complete) {
-		if (!USART_ASCII_MODE) {
 			compress_12bit_data(false);
-			HAL_UART_Transmit(&huart1, delim, sizeof(delim), HAL_MAX_DELAY);
-			HAL_UART_Transmit_DMA(&huart1, usart_tx_buffer, sizeof(usart_tx_buffer));
+			HAL_UART_Transmit_DMA(&huart1, (uint8_t*) &usart_tx_packet, sizeof(usart_tx_packet));
 			//HAL_UART_Transmit_DMA(&huart1, (uint8_t*) (&adc_buffer[ADC_BUFFER_LEN/2]), ADC_BUFFER_LEN);
-		}
 
 		adc_dma_complete = false;
 	}
 
-	if (USART_ASCII_MODE && millis >= com_ascii_last_print + com_ascii_print_period_ms) {
-		printf("t=%lu; S=%c,M=%c,G=%s,O=%c%s; ADC=%u\n", millis, max9939_info.shdn_ch, max9939_info.meas_ch, max9939_info.gain_str, max9939_info.offset_sign, max9939_info.offset_str, adc_buffer[0]);
-		com_ascii_last_print = millis;
-	}
-	//delay(1000);
-	//printf("ADC conversions: %lu\n", adc_num_conversions * ADC_BUFFER_LEN);
-	//adc_dma_half_complete = false;
-	//adc_dma_complete = false;
 
 	adc_num_conversions = 0;
   }
@@ -506,7 +446,7 @@ static void MX_ADC1_Init(void)
 
   /** Configure Regular Channel
   */
-  sConfig.Channel = ADC_CHANNEL_1;
+  sConfig.Channel = ADC_CHANNEL_2;
   sConfig.Rank = ADC_REGULAR_RANK_1;
   sConfig.SamplingTime = ADC_SAMPLINGTIME_COMMON_1;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
