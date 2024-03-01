@@ -19,7 +19,7 @@ Top view | Bottom view
 ## FW Notes
 * Project for STM32CubeIDE 1.14.1
 * USART1 for communication running at baudrate 4Mbps
-* SPI1 for PGA control (transmit only) running at 1MHz
+* SPI1 for PGA control (transmit only) running at 1MHz, LSB-first, 16-bit words 
 * ADC channels IN0 to IN2: IN0 = direct microphone output, IN1 = PGA output, IN2 = MFB op-amp output
 * ADC triggered by TIM3 for sampling frequency equal to 160kHz, oversampling x8 for noise reduction
 * ADC data is transferred by DMA to RAM buffer (with size 2kB), first and second half of the buffer are processed separately in the main program loop: the ADC data is 12-bit unsigned (0-4095) stored by default in 16-bit unsigned, the main loop "compresses" every two 12-bit consequtive samples into three bytes (saves 25% of the required throughput); sampling rate 160kHz thus corresponds to only 240kBps sample data throughput
