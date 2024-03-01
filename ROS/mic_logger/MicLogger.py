@@ -36,6 +36,8 @@ class MicLogger():
         self.adc_freq = rospy.get_param("~adc_freq")
         self.adc_samples_per_packet = rospy.get_param("~adc_samples_per_packet")
         self.adc_delim_seq = rospy.get_param("~adc_delim_seq")
+        self.gain_adjustment_period = rospy.get_param("~gain_adjustment_period")
+        self.settings_print_period = rospy.get_param("~settings_print_period")
 
         self.total_packet_bytes = len(self.adc_delim_seq) + 7 + int((2 * 3 * self.adc_samples_per_packet) // 4) + 2
 
@@ -101,6 +103,7 @@ class MicLogger():
         rate.sleep()
 
         last_print_time = time.time()
+        last_adjust_time = time.time()
         recv_bytes_cnt = 0
         recv_samples_cnt = 0
 
@@ -154,28 +157,30 @@ class MicLogger():
                     adc_data_min = new_adc_data.min()
                     adc_data_max = new_adc_data.max()
 
-                    sel_gain_id = np.argmin(np.abs(PGA_GAINS - self.pga_gain))
-                    if sel_gain_id == pga_gain_id:
-                        dist = max(abs(adc_data_mean - adc_data_min), abs(adc_data_mean - adc_data_max))
-                        if dist > 1800:
-                            new_gain_id = max(0, pga_gain_id - 1)
-                            if pga_gain_id != new_gain_id:
-                                rospy.loginfo("[MicLogger] The ADC values are too high, decreasing gain from %.2f to %.2f" % (PGA_GAINS[pga_gain_id], PGA_GAINS[new_gain_id]))
-                                self.pga_gain = PGA_GAINS[new_gain_id]
-                                self.set_pga_gain(com)
-                        elif dist < 200:
-                            new_gain_id = min(8, pga_gain_id + 1)
-                            if pga_gain_id != new_gain_id:
-                                rospy.loginfo("[MicLogger] The ADC values are too low, increasing gain from %.2f to %.2f" % (PGA_GAINS[pga_gain_id], PGA_GAINS[new_gain_id]))
-                                self.pga_gain = PGA_GAINS[new_gain_id]
-                                self.set_pga_gain(com)
-
-                    if time.time() >= last_print_time + 1:
+                    if self.settings_print_period > 0 and time.time() >= last_print_time + self.settings_print_period:
                         diff_time = time.time() - last_print_time
                         rospy.loginfo("[MicLogger] [#%d,G=%.2f,O=%.1f,CH%d] Received %d bytes (%d samples) in last %.3f sec -> %d B/s (%d sps); mean: %.2f; std: %.2f, min: %d, max: %d" % (packet_id, msg.pga_gain, msg.pga_offset, adc_channel_id, recv_bytes_cnt, recv_samples_cnt, diff_time, recv_bytes_cnt / diff_time, recv_samples_cnt/diff_time, adc_data_mean, adc_data_mean.std(), adc_data_min, adc_data_max))
                         last_print_time = time.time()
                         recv_bytes_cnt = 0
                         recv_samples_cnt = 0
+
+                    if (self.gain_adjustment_period > 0 and time.time() >= last_adjust_time + self.gain_adjustment_period) or self.gain_adjustment_period == 0.0:
+                        sel_gain_id = np.argmin(np.abs(PGA_GAINS - self.pga_gain))
+                        if sel_gain_id == pga_gain_id:
+                            dist = max(abs(adc_data_mean - adc_data_min), abs(adc_data_mean - adc_data_max))
+                            if dist > 1800:
+                                new_gain_id = max(0, pga_gain_id - 1)
+                                if pga_gain_id != new_gain_id:
+                                    rospy.loginfo("[MicLogger] The ADC values are too high, decreasing gain from %.2f to %.2f" % (PGA_GAINS[pga_gain_id], PGA_GAINS[new_gain_id]))
+                                    self.pga_gain = PGA_GAINS[new_gain_id]
+                                    self.set_pga_gain(com)
+                            elif dist < 200:
+                                new_gain_id = min(8, pga_gain_id + 1)
+                                if pga_gain_id != new_gain_id:
+                                    rospy.loginfo("[MicLogger] The ADC values are too low, increasing gain from %.2f to %.2f" % (PGA_GAINS[pga_gain_id], PGA_GAINS[new_gain_id]))
+                                    self.pga_gain = PGA_GAINS[new_gain_id]
+                                    self.set_pga_gain(com)
+                        last_adjust_time = time.time()
             else:
                 rospy.logwarn("[MicLogger] No data received, reopening COM port...")
                 com.close()
