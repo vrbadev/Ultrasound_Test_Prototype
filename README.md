@@ -22,10 +22,20 @@ Top view | Bottom view
 * SPI1 for PGA control (transmit only) running at 1MHz
 * ADC channels IN0 to IN2: IN0 = direct microphone output, IN1 = PGA output, IN2 = MFB op-amp output
 * ADC triggered by TIM3 for sampling frequency equal to 160kHz, oversampling x8 for noise reduction
-* ADC data is transferred by DMA to RAM buffer (with size 2kB), first and second half of the buffer are processed separately in the main program loop: the ADC data is 12-bit unsigned (0-4095) stored by default in 16-bit unsigned, the main loop "compresses" every two 12-bit consequtive samples into three bytes (saves 25% of the required throughput); sampling rate 160kHz thus requires only 240kBps throughput
-* The compressed samples (i.e., a TX buffer with size 750B) are transmitted via USART1 using another DMA channel, always preceded by delimeter sequence (three zero bytes) for correct receiver parsing (= 753B total per transmitted packet)
-* Accepts USART commands for PGA control: `S0`/`S1` for shutdown, `M0`/`M1` for self-measurement, `G0`-`G9` for gain selection (corresponding to 1, 10, 20, 30, 40, 60, 80, 120, 157, 0.25 gains) and `O+0`/`O-0` to `O+15`/`O-15` for internal offset correction (+/- signed, corresponding to 0.0, 1.3, 2.5, 3.8, 4.9, 6.1, 7.3, 8.4, 10.6, 11.7, 12.7, 13.7, 14.7, 15.7, 16.7, 17.6 mV)
-* Can be compiled with macro `USART_ASCII_MODE` set to `true` - then USART1 transmits single ADC sample every 500ms together with string containing PGA settings (useful for manual PGA offset calibration)
+* ADC data is transferred by DMA to RAM buffer (with size 2kB), first and second half of the buffer are processed separately in the main program loop: the ADC data is 12-bit unsigned (0-4095) stored by default in 16-bit unsigned, the main loop "compresses" every two 12-bit consequtive samples into three bytes (saves 25% of the required throughput); sampling rate 160kHz thus corresponds to only 240kBps sample data throughput
+* The output data packets are transmitted via USART1 using another DMA channel, packets have total size 764B and consist of:
+  - 5 delimeter bytes (0xFF) for packet start alignment,
+  - 1 byte for selected PGA gain (uint8, values 0 to 9) + 1 byte for selected PGA offset (int8, values -15 to +15) + 1 byte for selected ADC channel (uint8, values 0 to 2),
+  - 4 bytes for incremental packet ID (uint32),
+  - 750 bytes for the 500 compressed 16-bit samples,
+  - 2 dummy bytes for packet size alignment to 32-bit multiples
+* Accepts USART commands for settings management:
+  - `S0`/`S1` for PGA shutdown disable/enable,
+  - `M0`/`M1` for PGA self-measurement disable/enable,
+  - `G0` to `G9` for PGA gain selection (corresponding to 1, 10, 20, 30, 40, 60, 80, 120, 157, 0.25 gains),
+  - `O+0`/`O-0` to `O+15`/`O-15` for internal PGA offset correction (+/- signed, corresponding to 0.0, 1.3, 2.5, 3.8, 4.9, 6.1, 7.3, 8.4, 10.6, 11.7, 12.7, 13.7, 14.7, 15.7, 16.7, 17.6 mV),
+  - `C0` to `C2` for ADC channel selection (CH0, CH1 or CH2)
 
 ## SW Notes
-* A Python3 script which uses Tkinter + matplotlib for real-time visualisation of the ADC measurement: shows signal + FFT amplitude spectrum
+* Python3 script which uses Tkinter + matplotlib for real-time visualisation of the ADC measurement: shows signal + FFT amplitude spectrum, provides simple GUI for selection of PGA gain, PGA offset and ADC channel
+* Python ROS1 node which unpacks and publishes topic with the raw ADC data, automatically adjusts the PGA gain in case of saturation of the sampled analog signal
