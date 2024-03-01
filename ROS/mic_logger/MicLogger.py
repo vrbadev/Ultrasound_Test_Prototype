@@ -102,15 +102,27 @@ class MicLogger():
         self.set_adc_channel(com)
         rate.sleep()
 
-        last_print_time = time.time()
-        last_adjust_time = time.time()
-        recv_bytes_cnt = 0
-        recv_samples_cnt = 0
-
         pga_gain_id = 0xFF
         pga_offset_id = 0xFF
         adc_channel_id = 0xFF
         packet_id = -1
+
+        last_print_time = time.time()
+        print_period_adc_data_max = 0x0000
+        print_period_adc_data_min = 0xFFFF
+        print_period_adc_data_sum = 0.0
+        print_period_adc_data_cnt = 0
+        print_period_adc_data_bytes = 0
+
+        last_adjust_time = time.time()
+        adjust_period_adc_data_max = 0x0000
+        adjust_period_adc_data_min = 0xFFFF
+        adjust_period_adc_data_sum = 0.0
+        adjust_period_adc_data_cnt = 0
+
+        prev_lost = False
+        
+        cons_sat_cnt = 0
 
         while not rospy.is_shutdown():
             data_raw = com.read(self.total_packet_bytes)
@@ -118,11 +130,13 @@ class MicLogger():
             if len(data) > 0:
                 seq_pos = search_sequence(data, self.adc_delim_seq)
                 if len(seq_pos) == 0:
+                    rospy.logwarn("[MicLogger] Delimeter sequence not found in the data!")
                     continue
                 elif len(seq_pos) == len(self.adc_delim_seq) and seq_pos[0] > 0:
-                    rospy.loginfo("[MicLogger] Lost %d bytes, aligning to delimeter sequence at pos %d" % (self.total_packet_bytes - seq_pos[0], seq_pos[0]))
+                    rospy.logwarn("[MicLogger] Lost %d bytes after #%d, aligning to delimeter sequence at pos %d" % (self.total_packet_bytes - seq_pos[0], packet_id, seq_pos[0]))
                     packet_id = -1
                     data = np.frombuffer(com.read(int(seq_pos[0])), dtype=np.uint8)
+                    prev_lost = True
                 else:
                     pga_gain_id = data[5]
                     pga_offset_id = np.frombuffer(data_raw[6:7], dtype=np.int8)
@@ -131,7 +145,7 @@ class MicLogger():
                     data = data[len(self.adc_delim_seq)+7:-2]
                 
                 if packet_id >= 0 and pga_gain_id <= 9 and abs(pga_offset_id) <= 15 and adc_channel_id <= 2:
-                    recv_bytes_cnt += len(data)
+                    print_period_adc_data_bytes += len(data)
                     new_adc_data = np.zeros(self.adc_samples_per_packet, dtype=np.uint16)
                     j = 0
                     for i in range(0, len(data), 3):
@@ -141,9 +155,10 @@ class MicLogger():
                         if i+2 < len(data):
                             new_adc_data[j] = ((data[i+1] & 0xF0) << 4) | data[i+2]
                             j += 1
-                    
-                    recv_samples_cnt += j
 
+                    adc_data_min = new_adc_data.min()
+                    adc_data_max = new_adc_data.max()
+                        
                     msg = ADCPacketRaw()
                     msg.ros_stamp = rospy.Time.now()
                     msg.packet_id = int(packet_id)
@@ -153,21 +168,35 @@ class MicLogger():
                     msg.adc_data = new_adc_data[:j]
                     self.pub.publish(msg)
 
-                    adc_data_mean = new_adc_data.mean()
-                    adc_data_min = new_adc_data.min()
-                    adc_data_max = new_adc_data.max()
+                    if self.settings_print_period >= 0:
+                        print_period_adc_data_max = max(print_period_adc_data_max, adc_data_max)
+                        print_period_adc_data_min = min(print_period_adc_data_min, adc_data_min)
+                        print_period_adc_data_sum += new_adc_data.sum()
+                        print_period_adc_data_cnt += j
 
-                    if self.settings_print_period > 0 and time.time() >= last_print_time + self.settings_print_period:
-                        diff_time = time.time() - last_print_time
-                        rospy.loginfo("[MicLogger] [#%d,G=%.2f,O=%.1f,CH%d] Received %d bytes (%d samples) in last %.3f sec -> %d B/s (%d sps); mean: %.2f; std: %.2f, min: %d, max: %d" % (packet_id, msg.pga_gain, msg.pga_offset, adc_channel_id, recv_bytes_cnt, recv_samples_cnt, diff_time, recv_bytes_cnt / diff_time, recv_samples_cnt/diff_time, adc_data_mean, adc_data_mean.std(), adc_data_min, adc_data_max))
-                        last_print_time = time.time()
-                        recv_bytes_cnt = 0
-                        recv_samples_cnt = 0
+                        if self.settings_print_period > 0 and time.time() >= last_print_time + self.settings_print_period:
+                            diff_time = time.time() - last_print_time
+                            print_period_adc_data_mean = print_period_adc_data_sum / print_period_adc_data_cnt
+                            rospy.loginfo("[MicLogger] [#%d,G=%.2f,O=%.1f,CH%d] Received %d bytes (%d samples) in last %.3f sec -> %d B/s (%d sps); mean: %.2f; min: %d; max: %d" % (packet_id, msg.pga_gain, msg.pga_offset, adc_channel_id, print_period_adc_data_bytes, print_period_adc_data_cnt, diff_time, print_period_adc_data_bytes / diff_time, print_period_adc_data_cnt / diff_time, print_period_adc_data_mean, print_period_adc_data_min, print_period_adc_data_max))
+                            last_print_time = time.time()
+                            print_period_adc_data_bytes = 0
+                            print_period_adc_data_max = 0x0000
+                            print_period_adc_data_min = 0xFFFF
+                            print_period_adc_data_sum = 0.0
+                            print_period_adc_data_cnt = 0
 
-                    if (self.gain_adjustment_period > 0 and time.time() >= last_adjust_time + self.gain_adjustment_period) or self.gain_adjustment_period == 0.0:
-                        sel_gain_id = np.argmin(np.abs(PGA_GAINS - self.pga_gain))
-                        if sel_gain_id == pga_gain_id:
-                            dist = max(abs(adc_data_mean - adc_data_min), abs(adc_data_mean - adc_data_max))
+
+                    sel_gain_id = np.argmin(np.abs(PGA_GAINS - self.pga_gain))
+                    if sel_gain_id == pga_gain_id and self.gain_adjustment_period >= 0:
+                        adjust_period_adc_data_max = max(adjust_period_adc_data_max, adc_data_max)
+                        adjust_period_adc_data_min = min(adjust_period_adc_data_min, adc_data_min)
+                        adjust_period_adc_data_sum += new_adc_data.sum()
+                        adjust_period_adc_data_cnt += j
+
+                        if (self.gain_adjustment_period > 0 and time.time() >= last_adjust_time + self.gain_adjustment_period) or self.gain_adjustment_period == 0.0:
+                            adjust_period_adc_data_mean = adjust_period_adc_data_sum / adjust_period_adc_data_cnt
+                            #rospy.loginfo("sum=%f cnt=%f mean=%f min=%f max=%f" % (adjust_period_adc_data_sum, adjust_period_adc_data_cnt, adjust_period_adc_data_mean, adjust_period_adc_data_min, adjust_period_adc_data_max))
+                            dist = max(abs(adjust_period_adc_data_mean - adjust_period_adc_data_min), abs(adjust_period_adc_data_mean - adjust_period_adc_data_max))
                             if dist > 1800:
                                 new_gain_id = max(0, pga_gain_id - 1)
                                 if pga_gain_id != new_gain_id:
@@ -180,7 +209,23 @@ class MicLogger():
                                     rospy.loginfo("[MicLogger] The ADC values are too low, increasing gain from %.2f to %.2f" % (PGA_GAINS[pga_gain_id], PGA_GAINS[new_gain_id]))
                                     self.pga_gain = PGA_GAINS[new_gain_id]
                                     self.set_pga_gain(com)
-                        last_adjust_time = time.time()
+
+                            last_adjust_time = time.time()
+                            adjust_period_adc_data_max = 0x0000
+                            adjust_period_adc_data_min = 0xFFFF
+                            adjust_period_adc_data_sum = 0.0
+                            adjust_period_adc_data_cnt = 0
+
+                    if adc_data_min == 0:
+                        rospy.logwarn("[MicLogger] [#%d] Minimum value is 0 (low saturation)!" % (packet_id))
+                        cons_sat_cnt += 1
+                    elif adc_data_max == 4095:
+                        rospy.logwarn("[MicLogger] [#%d] Maximum value is 4095 (high saturation)!" % (packet_id))
+                        cons_sat_cnt += 1
+                    else:
+                        cons_sat_cnt = 0
+
+                    prev_lost = False
             else:
                 rospy.logwarn("[MicLogger] No data received, reopening COM port...")
                 com.close()
