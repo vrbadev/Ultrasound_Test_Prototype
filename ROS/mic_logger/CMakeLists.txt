@@ -10,7 +10,7 @@ find_package(catkin
 
 add_message_files(
   FILES
-  UInt16ArrayStamped.msg
+  ADCPacketRaw.msg
 )
 
 generate_messages(
